@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFormation template to deploy an S3 bucket, two Lambda functions with a 10-minute timeout and Python 3.12 runtime, and an EventBridge rule to trigger a Glue job.
+Description: CloudFormation template to deploy an S3 bucket, Lambda functions, Glue jobs, and an SNS topic for notifications.
 
 Resources:
   # S3 Bucket
@@ -8,7 +8,6 @@ Resources:
     Properties:
       BucketName: finstockbucket12
     DeletionPolicy: Delete
-
 
   # Lambda Layer for requests library from an existing bucket
   RequestsLayer:
@@ -19,7 +18,6 @@ Resources:
         S3Bucket: finstockbucket001
         S3Key: layers/python.zip
       CompatibleRuntimes:
-        - python3.11
         - python3.12
 
   # Lambda Function 1: FetchTickersLambda
@@ -62,7 +60,7 @@ Resources:
                       'body': json.dumps(f'Error: {str(e)}')
                   }
       Runtime: python3.12
-      Timeout: 600  # 10 minutes
+      Timeout: 600
       Layers:
         - !Ref RequestsLayer
     DependsOn: FinstockBucket
@@ -122,49 +120,113 @@ Resources:
                       'body': json.dumps(f'Error: {str(e)}')
                   }
       Runtime: python3.12
-      Timeout: 600  # 10 minutes
+      Timeout: 600
       Layers:
         - !Ref RequestsLayer
     DependsOn: FinstockBucket
 
-  # EventBridge Rule to trigger Glue job on S3 file creation or overwrite
-  #  S3EventBridgeRule:
-  #    Type: AWS::Events::Rule
-  #    Properties:
-  #      Name: S3FileUploadRule
-  #      EventPattern:
-  #        source:
-  #          - "aws.s3"
-  #        detail-type:
-  #          - "Object Created"
-  #        detail:
-  #          bucket:
-  #            name:
-  #              - "finstockbucket12"
-  #          object:
-  #            key:
-  #              prefix: "bronzeLayer/"
-  #      State: ENABLED
-  #      Targets:
-  #        - Arn: !GetAtt GlueJob.Arn
-  #          Id: "GlueJobTarget"
-  #    DependsOn: FinstockBucket
+  # Glue Job 1: FetchAllTickersETL
+  FetchAllTickersETL:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: "fetchAllTickersETL"
+      Role: arn:aws:iam::697643150634:role/LabRole
+      Command:
+        Name: "glueetl"
+        ScriptLocation: "s3://finstockbucket001/etlscripts/FetchAllTickersEtl.py"
+        PythonVersion: "3"
+      DefaultArguments:
+        "--job-language": "python"
+        "--s3_input_key": "bronzeLayer/allTickersData.json"
+      GlueVersion: "3.0"
+      MaxCapacity: 2.0
+      Timeout: 10
+    DependsOn: FinstockBucket
 
-  # Glue Job
-#  GlueJob:
-#    Type: AWS::Glue::Job
-#    Properties:
-#      Name: "S3FileProcessingJob"
-#      Role: arn:aws:iam::697643150634:role/LabRole
-#      Command:
-#        Name: "glueetl"
-#        ScriptLocation: "s3://path-to-your-glue-script/etl-script.py"
-#        PythonVersion: "3"
-#      DefaultArguments:
-#        "--job-language": "python"
-#      GlueVersion: "3.0"
-#      MaxCapacity: 2.0
-#    DependsOn: FinstockBucket
+  # Glue Job 2: FetchUserTickerETL
+  FetchUserTickerETL:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: "fetchUserTickerETL"
+      Role: arn:aws:iam::697643150634:role/LabRole
+      Command:
+        Name: "glueetl"
+        ScriptLocation: "s3://finstockbucket001/etlscripts/FetchUserTickerEtl.py"
+        PythonVersion: "3"
+      DefaultArguments:
+        "--job-language": "python"
+        "--s3_input_key": "bronzeLayer/someTickerUserData.json"
+      GlueVersion: "3.0"
+      MaxCapacity: 2.0
+      Timeout: 10
+    DependsOn: FinstockBucket
+
+  # Lambda Function 3: TriggerGlueJobsLambda
+  TriggerGlueJobsLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: TriggerGlueJobsLambda
+      Handler: index.lambda_handler
+      Role: arn:aws:iam::697643150634:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          glue_client = boto3.client('glue')
+
+          def lambda_handler(event, context):
+              for record in event['Records']:
+                  s3_bucket = record['s3']['bucket']['name']
+                  s3_key = record['s3']['object']['key']
+
+                  if s3_key.endswith('allTickersData.json'):
+                      glue_job_name = 'fetchAllTickersETL'
+                  elif s3_key.endswith('userData.json'):
+                      glue_job_name = 'fetchUserTickerETL'
+                  else:
+                      continue
+
+                  response = glue_client.start_job_run(
+                      JobName=glue_job_name,
+                      Arguments={
+                          '--s3_input_key': s3_key
+                      }
+                  )
+
+                  print(f"Started Glue job {glue_job_name}: {response['JobRunId']}")
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Glue job triggered successfully!')
+              }
+      Runtime: python3.12
+      Timeout: 600
+    DependsOn: [FetchAllTickersETL, FetchUserTickerETL]
+
+  # SNS Topic
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: FinStockNotifications
+
+  # SNS Topic Subscription
+  SNSTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref SNSTopic
+      Protocol: email
+      Endpoint: 'pathakkunj1212@gmail.com'  # Replace with your email address
+
+  # Lambda Permission for S3
+  LambdaS3PermissionForTrigger:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt TriggerGlueJobsLambda.Arn
+      Principal: "s3.amazonaws.com"
+      SourceArn: !Sub arn:aws:s3:::${FinstockBucket}
+
 
 Outputs:
   FetchTickersLambdaArn:
@@ -174,3 +236,11 @@ Outputs:
   FetchParticularTickerArn:
     Description: ARN of the FetchParticularTicker function
     Value: !GetAtt FetchParticularTicker.Arn
+
+  TriggerGlueJobsLambdaArn:
+    Description: ARN of the TriggerGlueJobsLambda function
+    Value: !GetAtt TriggerGlueJobsLambda.Arn
+
+  SNSTopicArn:
+    Description: ARN of the SNS topic for notifications
+    Value: !Ref SNSTopic
