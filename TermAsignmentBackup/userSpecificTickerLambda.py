@@ -3,40 +3,40 @@ import boto3
 import requests
 
 def lambda_handler(event, context):
+    # Initialize S3 client
     s3 = boto3.client('s3')
-    sqs = boto3.client('sqs')
-    polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"  
-    startDate = event.get("startDate")
-    endDate = event.get("endDate")
+
+    # Polygon API key
+    polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
+
+    start_date = event.get("startDate")
+    end_date = event.get("endDate")
     ticker = event.get("tickerName")
-    sqs_queue_url = "https://sqs.us-east-1.amazonaws.com/802085315584/FinstockQueue"
-    
-    if not startDate or not endDate or not ticker:
+    s3_key = f"bronzeLayer/{ticker}userData.json"
+
+    if not start_date or not end_date or not ticker:
         return {
             'statusCode': 400,
             'body': json.dumps('Missing required parameters: startDate, endDate, and ticker must be provided.')
         }
-    
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{startDate}/{endDate}?adjusted=true&sort=asc&limit=5000&apiKey={polygon_api_key}"
+
+    # Construct the Polygon API URL
+    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=5000&apiKey={polygon_api_key}"
 
     try:
+        # Fetch the stock data from the Polygon API
         response = requests.get(url)
-        response.raise_for_status()  
-        dataFile = response.json()
-        dataFile = json.dumps(dataFile)
-        
-        s3_key = f"bronzeLayer/{ticker}userData.json"
-        
-        s3.put_object(Bucket="finstocktickers", Key=s3_key, Body=dataFile)
-        
-        sqs.send_message(
-            QueueUrl=sqs_queue_url,
-            MessageBody=json.dumps({
-                "file": s3_key,
-                "glueJob": "FetchUserTicker"
-            })
-        )
-        
+        response.raise_for_status()
+        data = response.json()
+
+        # Convert the data to JSON format
+        data_file = json.dumps(data)
+
+
+
+        # Upload the data to S3 bucket
+        s3.put_object(Bucket="finstockbucket", Key=s3_key, Body=data_file)
+
         return {
             'statusCode': 200,
             'body': json.dumps('Data Upload to S3 Successful!')
