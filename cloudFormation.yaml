@@ -267,12 +267,13 @@ Resources:
         ZipFile: |
           import json
           import boto3
-          import os  # Import os module to access environment variables
+          import os
 
           sns_client = boto3.client('sns')
 
           def lambda_handler(event, context):
               sns_topic_arn = os.environ['SNS_TOPIC_ARN']
+              print("Received event:", json.dumps(event, indent=2))  # Log the event for debugging
 
               message = {
                   "default": "ETL job succeeded.",
@@ -325,7 +326,7 @@ Resources:
         - Arn: !GetAtt TriggerGlueJobsLambda.Arn
           Id: "TriggerGlueJobsLambdaTargetFetchParticularTicker"
 
-  # Lambda Permission for EventBridge rules
+  # Lambda Permission for EventBridge rules to invoke TriggerGlueJobsLambda
   LambdaEventBridgePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -333,6 +334,14 @@ Resources:
       FunctionName: !Ref TriggerGlueJobsLambda
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt FetchTickersRule.Arn
+
+  LambdaEventBridgePermission2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Ref TriggerGlueJobsLambda
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt FetchParticularTickerRule.Arn
 
   # SNS Topic
   SNSTopic:
@@ -367,7 +376,7 @@ Resources:
         - Arn: !GetAtt SendNotificationLambda.Arn
           Id: "SendNotificationLambdaTarget"
 
-  # Lambda Permission for CloudWatch
+  # Lambda Permission for CloudWatch to invoke SendNotificationLambda
   LambdaCloudWatchPermission:
     Type: AWS::Lambda::Permission
     Properties:
