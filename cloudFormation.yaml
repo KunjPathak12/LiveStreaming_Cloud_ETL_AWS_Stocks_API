@@ -170,7 +170,6 @@ Resources:
         PythonVersion: "3"
       DefaultArguments:
         "--job-language": "python"
-        "--s3_input_key": "bronzeLayer/allTickersData.json"
       GlueVersion: "3.0"
       MaxCapacity: 2.0
       Timeout: 10
@@ -188,7 +187,6 @@ Resources:
         PythonVersion: "3"
       DefaultArguments:
         "--job-language": "python"
-        "--s3_input_key": "bronzeLayer/someTickerUserData.json"
       GlueVersion: "3.0"
       MaxCapacity: 2.0
       Timeout: 10
@@ -205,23 +203,26 @@ Resources:
         ZipFile: |
           import json
           import boto3
-
+          import os
+  
           glue_client = boto3.client('glue')
-
+          sns_client = boto3.client('sns')
+          sns_topic_arn = os.environ['SNS_TOPIC_ARN']
+  
           def lambda_handler(event, context):
               print("Received event:", json.dumps(event, indent=2))  # Log the event for debugging
-
+  
               # Extract details from the event
               detail = event.get('detail', {})
               s3_key = detail.get('s3_key')
-
+  
               if not s3_key:
                   print("No S3 key found in the event detail.")
                   return {
                       'statusCode': 400,
                       'body': json.dumps('No S3 key found in the event detail.')
                   }
-
+  
               # Determine which Glue job to trigger based on S3 key
               if s3_key.endswith('allTickersData.json'):
                   glue_job_name = 'fetchAllTickersETL'
@@ -233,7 +234,7 @@ Resources:
                       'statusCode': 400,
                       'body': json.dumps('Unknown S3 key.')
                   }
-
+  
               # Start the Glue job
               try:
                   response = glue_client.start_job_run(
@@ -243,6 +244,15 @@ Resources:
                       }
                   )
                   print(f"Started Glue job {glue_job_name}: {response['JobRunId']}")
+  
+                  # Send notification to SNS about the job start
+                  sns_message = f"Started Glue job '{glue_job_name}' with S3 key '{s3_key}'."
+                  sns_client.publish(
+                      TopicArn=sns_topic_arn,
+                      Message=sns_message,
+                      Subject=f"Glue Job Started: {glue_job_name}"
+                  )
+  
                   return {
                       'statusCode': 200,
                       'body': json.dumps(f'Glue job {glue_job_name} triggered successfully!')
@@ -255,6 +265,10 @@ Resources:
                   }
       Runtime: python3.12
       Timeout: 600
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SNSTopic
+
 
   # Lambda Function 4: SendNotificationLambda
   SendNotificationLambda:
