@@ -209,32 +209,50 @@ Resources:
           glue_client = boto3.client('glue')
 
           def lambda_handler(event, context):
-              detail = json.loads(event.get('detail', '{}'))
-              s3_key = detail.get('s3_key', '')
+              print("Received event:", json.dumps(event, indent=2))  # Log the event for debugging
 
+              # Extract details from the event
+              detail = event.get('detail', {})
+              s3_key = detail.get('s3_key')
+
+              if not s3_key:
+                  print("No S3 key found in the event detail.")
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps('No S3 key found in the event detail.')
+                  }
+
+              # Determine which Glue job to trigger based on S3 key
               if s3_key.endswith('allTickersData.json'):
                   glue_job_name = 'fetchAllTickersETL'
               elif s3_key.endswith('userData.json'):
                   glue_job_name = 'fetchUserTickerETL'
               else:
+                  print(f"Unknown S3 key: {s3_key}")
                   return {
                       'statusCode': 400,
-                      'body': json.dumps('No matching Glue job found.')
+                      'body': json.dumps('Unknown S3 key.')
                   }
 
-              response = glue_client.start_job_run(
-                  JobName=glue_job_name,
-                  Arguments={
-                      '--s3_input_key': s3_key
+              # Start the Glue job
+              try:
+                  response = glue_client.start_job_run(
+                      JobName=glue_job_name,
+                      Arguments={
+                          '--s3_input_key': s3_key
+                      }
+                  )
+                  print(f"Started Glue job {glue_job_name}: {response['JobRunId']}")
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps(f'Glue job {glue_job_name} triggered successfully!')
                   }
-              )
-
-              print(f"Started Glue job {glue_job_name}: {response['JobRunId']}")
-
-              return {
-                  'statusCode': 200,
-                  'body': json.dumps('Glue job triggered successfully!')
-              }
+              except Exception as e:
+                  print(f"Error starting Glue job {glue_job_name}: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f'Error starting Glue job {glue_job_name}: {str(e)}')
+                  }
       Runtime: python3.12
       Timeout: 600
 
@@ -249,11 +267,12 @@ Resources:
         ZipFile: |
           import json
           import boto3
+          import os  # Import os module to access environment variables
 
           sns_client = boto3.client('sns')
 
           def lambda_handler(event, context):
-              sns_topic_arn = "${SNSTopic.Arn}"
+              sns_topic_arn = os.environ['SNS_TOPIC_ARN']
 
               message = {
                   "default": "ETL job succeeded.",
@@ -274,6 +293,9 @@ Resources:
               }
       Runtime: python3.12
       Timeout: 600
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref SNSTopic
 
   # EventBridge Rule to trigger Lambda on FetchTickersLambda completion
   FetchTickersRule:
