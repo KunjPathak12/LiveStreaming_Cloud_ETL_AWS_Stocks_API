@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFormation template to deploy an S3 bucket, Lambda functions, Glue jobs, and an SNS topic for notifications.
+Description: CloudFormation template to deploy an S3 bucket, Lambda functions, Glue jobs, EventBridge rules, and an SNS topic for notifications.
 
 Resources:
   # S3 Bucket
@@ -33,18 +33,34 @@ Resources:
           import boto3
           import requests
 
-          def lambda_handler(event, context):
-              s3 = boto3.client('s3')
-              polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
-              url = f"https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&sort=ticker&apiKey={polygon_api_key}"
-              s3_key = "bronzeLayer/allTickersData.json"
+          events_client = boto3.client('events')
+          s3 = boto3.client('s3')
+          polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
+          url = f"https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&sort=ticker&apiKey={polygon_api_key}"
+          s3_key = "bronzeLayer/allTickersData.json"
 
+          def lambda_handler(event, context):
               try:
                   response = requests.get(url)
                   response.raise_for_status()
                   data = response.json()
                   dataFile = json.dumps(data)
                   s3.put_object(Bucket="finstockbucket12", Key=s3_key, Body=dataFile)
+          
+                  # Send event to EventBridge
+                  events_client.put_events(
+                      Entries=[
+                          {
+                              'Source': 'custom.fetchTickersLambda',
+                              'DetailType': 'FetchTickersComplete',
+                              'Detail': json.dumps({
+                                  'status': 'success',
+                                  's3_key': s3_key
+                              }),
+                              'EventBusName': 'default'
+                          }
+                      ]
+                  )
                   return {
                       'statusCode': 200,
                       'body': json.dumps('Data Upload to S3 Successful!')
@@ -78,9 +94,11 @@ Resources:
           import boto3
           import requests
 
+          events_client = boto3.client('events')
+          s3 = boto3.client('s3')
+          polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
+          
           def lambda_handler(event, context):
-              s3 = boto3.client('s3')
-              polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
               start_date = event.get("startDate")
               end_date = event.get("endDate")
               ticker = event.get("tickerName")
@@ -100,6 +118,21 @@ Resources:
                   data = response.json()
                   data_file = json.dumps(data)
                   s3.put_object(Bucket="finstockbucket12", Key=s3_key, Body=data_file)
+          
+                  # Send event to EventBridge
+                  events_client.put_events(
+                      Entries=[
+                          {
+                              'Source': 'custom.fetchParticularTickerLambda',
+                              'DetailType': 'FetchParticularTickerComplete',
+                              'Detail': json.dumps({
+                                  'status': 'success',
+                                  's3_key': s3_key
+                              }),
+                              'EventBusName': 'default'
+                          }
+                      ]
+                  )
                   return {
                       'statusCode': 200,
                       'body': json.dumps('Data Upload to S3 Successful!')
@@ -176,25 +209,27 @@ Resources:
           glue_client = boto3.client('glue')
 
           def lambda_handler(event, context):
-              for record in event['Records']:
-                  s3_bucket = record['s3']['bucket']['name']
-                  s3_key = record['s3']['object']['key']
+              detail = json.loads(event.get('detail', '{}'))
+              s3_key = detail.get('s3_key', '')
 
-                  if s3_key.endswith('allTickersData.json'):
-                      glue_job_name = 'fetchAllTickersETL'
-                  elif s3_key.endswith('userData.json'):
-                      glue_job_name = 'fetchUserTickerETL'
-                  else:
-                      continue
+              if s3_key.endswith('allTickersData.json'):
+                  glue_job_name = 'fetchAllTickersETL'
+              elif s3_key.endswith('userData.json'):
+                  glue_job_name = 'fetchUserTickerETL'
+              else:
+                  return {
+                      'statusCode': 400,
+                      'body': json.dumps('No matching Glue job found.')
+                  }
 
-                  response = glue_client.start_job_run(
-                      JobName=glue_job_name,
-                      Arguments={
-                          '--s3_input_key': s3_key
-                      }
-                  )
+              response = glue_client.start_job_run(
+                  JobName=glue_job_name,
+                  Arguments={
+                      '--s3_input_key': s3_key
+                  }
+              )
 
-                  print(f"Started Glue job {glue_job_name}: {response['JobRunId']}")
+              print(f"Started Glue job {glue_job_name}: {response['JobRunId']}")
 
               return {
                   'statusCode': 200,
@@ -202,7 +237,80 @@ Resources:
               }
       Runtime: python3.12
       Timeout: 600
-    DependsOn: [FetchAllTickersETL, FetchUserTickerETL]
+
+  # Lambda Function 4: SendNotificationLambda
+  SendNotificationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SendNotificationLambda
+      Handler: index.lambda_handler
+      Role: arn:aws:iam::697643150634:role/LabRole
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          sns_client = boto3.client('sns')
+
+          def lambda_handler(event, context):
+              sns_topic_arn = "${SNSTopic.Arn}"
+
+              message = {
+                  "default": "ETL job succeeded.",
+                  "email": "ETL job succeeded. Output available in S3."
+              }
+
+              response = sns_client.publish(
+                  TopicArn=sns_topic_arn,
+                  Message=json.dumps(message),
+                  Subject="ETL Job Notification"
+              )
+
+              print(f"Notification sent: {response['MessageId']}")
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Notification sent successfully!')
+              }
+      Runtime: python3.12
+      Timeout: 600
+
+  # EventBridge Rule to trigger Lambda on FetchTickersLambda completion
+  FetchTickersRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Trigger TriggerGlueJobsLambda on FetchTickersLambda completion"
+      EventPattern:
+        source:
+          - "custom.fetchTickersLambda"
+        detail-type:
+          - "FetchTickersComplete"
+      Targets:
+        - Arn: !GetAtt TriggerGlueJobsLambda.Arn
+          Id: "TriggerGlueJobsLambdaTargetFetchTickers"
+
+  # EventBridge Rule to trigger Lambda on FetchParticularTicker completion
+  FetchParticularTickerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Trigger TriggerGlueJobsLambda on FetchParticularTicker completion"
+      EventPattern:
+        source:
+          - "custom.fetchParticularTickerLambda"
+        detail-type:
+          - "FetchParticularTickerComplete"
+      Targets:
+        - Arn: !GetAtt TriggerGlueJobsLambda.Arn
+          Id: "TriggerGlueJobsLambdaTargetFetchParticularTicker"
+
+  # Lambda Permission for EventBridge rules
+  LambdaEventBridgePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Ref TriggerGlueJobsLambda
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt FetchTickersRule.Arn
 
   # SNS Topic
   SNSTopic:
@@ -218,15 +326,33 @@ Resources:
       Protocol: email
       Endpoint: 'pathakkunj1212@gmail.com'  # Replace with your email address
 
-  # Lambda Permission for S3
-  LambdaS3PermissionForTrigger:
+  # CloudWatch Rule to trigger Notification Lambda on all Glue job state changes
+  GlueJobCompletionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Trigger Notification Lambda on all Glue job state changes"
+      EventPattern:
+        source:
+          - "aws.glue"
+        detail-type:
+          - "AWS Glue Job State Change"
+        detail:
+          state:
+            - "SUCCEEDED"
+            - "FAILED"
+            - "STOPPED"
+      Targets:
+        - Arn: !GetAtt SendNotificationLambda.Arn
+          Id: "SendNotificationLambdaTarget"
+
+  # Lambda Permission for CloudWatch
+  LambdaCloudWatchPermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: "lambda:InvokeFunction"
-      FunctionName: !GetAtt TriggerGlueJobsLambda.Arn
-      Principal: "s3.amazonaws.com"
-      SourceArn: !Sub arn:aws:s3:::${FinstockBucket}
-
+      FunctionName: !Ref SendNotificationLambda
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt GlueJobCompletionRule.Arn
 
 Outputs:
   FetchTickersLambdaArn:
@@ -240,6 +366,10 @@ Outputs:
   TriggerGlueJobsLambdaArn:
     Description: ARN of the TriggerGlueJobsLambda function
     Value: !GetAtt TriggerGlueJobsLambda.Arn
+
+  SendNotificationLambdaArn:
+    Description: ARN of the SendNotificationLambda function
+    Value: !GetAtt SendNotificationLambda.Arn
 
   SNSTopicArn:
     Description: ARN of the SNS topic for notifications

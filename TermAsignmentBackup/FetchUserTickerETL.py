@@ -22,7 +22,7 @@ job.init(args['JOB_NAME'], args)
 s3 = boto3.client('s3')
 print("AWS S3 Connection established")
 s3_input_key = args['s3_input_key']
-bucket_name = 'finstocktickers'
+bucket_name = 'finstockbucket12'
 file_path = s3_input_key
 
 df = spark.read.option("multiline", "true").option("mode", "PERMISSIVE").json(f"s3a://{bucket_name}/{file_path}")
