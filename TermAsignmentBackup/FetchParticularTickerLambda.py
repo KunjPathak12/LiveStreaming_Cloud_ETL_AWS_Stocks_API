@@ -2,13 +2,11 @@ import json
 import boto3
 import requests
 
+events_client = boto3.client('events')
+s3 = boto3.client('s3')
+polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
+
 def lambda_handler(event, context):
-    # Initialize S3 client
-    s3 = boto3.client('s3')
-
-    # Polygon API key
-    polygon_api_key = "vS5DqXeWT0Jgu_28xJweTe8kIcMpF2UW"
-
     start_date = event.get("startDate")
     end_date = event.get("endDate")
     ticker = event.get("tickerName")
@@ -20,23 +18,29 @@ def lambda_handler(event, context):
             'body': json.dumps('Missing required parameters: startDate, endDate, and ticker must be provided.')
         }
 
-    # Construct the Polygon API URL
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=5000&apiKey={polygon_api_key}"
 
     try:
-        # Fetch the stock data from the Polygon API
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
-
-        # Convert the data to JSON format
         data_file = json.dumps(data)
+        s3.put_object(Bucket="finstockbucket12", Key=s3_key, Body=data_file)
 
-
-
-        # Upload the data to S3 bucket
-        s3.put_object(Bucket="finstockbucket", Key=s3_key, Body=data_file)
-
+        # Send event to EventBridge
+        events_client.put_events(
+            Entries=[
+                {
+                    'Source': 'custom.fetchParticularTickerLambda',
+                    'DetailType': 'FetchParticularTickerComplete',
+                    'Detail': json.dumps({
+                        'status': 'success',
+                        's3_key': s3_key
+                    }),
+                    'EventBusName': 'default'
+                }
+            ]
+        )
         return {
             'statusCode': 200,
             'body': json.dumps('Data Upload to S3 Successful!')
