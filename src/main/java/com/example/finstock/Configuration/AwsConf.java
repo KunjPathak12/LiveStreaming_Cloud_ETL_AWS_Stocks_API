@@ -2,6 +2,7 @@ package com.example.finstock.Configuration;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.auth.BasicSessionCredentials;
 import com.amazonaws.services.lambda.AWSLambda;
 import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
@@ -18,11 +19,12 @@ public class AwsConf {
     private String secretAccessKey;
     @Value("${aws.region}")
     private String region;
-
+    @Value("${aws.sessionToken}")
+    private String sessionToken;
 
     @Bean
     public AmazonS3 amazonS3() {
-        BasicAWSCredentials awsCreds = new BasicAWSCredentials(accessKeyId, secretAccessKey);
+        BasicSessionCredentials awsCreds = new BasicSessionCredentials(accessKeyId, secretAccessKey, sessionToken);
         return AmazonS3ClientBuilder.standard()
                 .withRegion(region)
                 .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
@@ -31,7 +33,7 @@ public class AwsConf {
 
     @Bean
     public AWSLambda awsLambda() {
-        BasicAWSCredentials awsCreds = new BasicAWSCredentials(accessKeyId, secretAccessKey);
+        BasicSessionCredentials awsCreds = new BasicSessionCredentials(accessKeyId, secretAccessKey, sessionToken);
         return AWSLambdaClientBuilder.standard()
                 .withRegion(region)
                 .withCredentials(new AWSStaticCredentialsProvider(awsCreds))
