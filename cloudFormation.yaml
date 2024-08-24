@@ -47,7 +47,7 @@ Resources:
                   dataFile = json.dumps(data)
                   s3.put_object(Bucket="finstockbucket12", Key=s3_key, Body=dataFile)
           
-                  # Event for EventBridge
+                  # Send event to EventBridge
                   events_client.put_events(
                       Entries=[
                           {
@@ -119,7 +119,7 @@ Resources:
                   data_file = json.dumps(data)
                   s3.put_object(Bucket="finstockbucket12", Key=s3_key, Body=data_file)
           
-                  # Event for EventBridge
+                  # Send event to EventBridge
                   events_client.put_events(
                       Entries=[
                           {
@@ -214,7 +214,7 @@ Resources:
           def lambda_handler(event, context):
               print("Received event:", json.dumps(event, indent=2))  # Log the event for debugging
 
-              # Extracting details from the event
+              # Extract details from the event
               detail = event.get('detail', {})
               s3_key = detail.get('s3_key')
 
@@ -225,7 +225,7 @@ Resources:
                       'body': json.dumps('No S3 key found in the event detail.')
                   }
 
-              # Determining Glue job to trigger based on S3 key
+              # Determine which Glue job to trigger based on S3 key
               if s3_key.endswith('allTickersData.json'):
                   glue_job_name = 'fetchAllTickersETL'
               elif s3_key.endswith('userData.json'):
@@ -248,7 +248,7 @@ Resources:
                   job_run_id = response['JobRunId']
                   print(f"Started Glue job {glue_job_name}: {job_run_id}")
 
-                  # Wait for the Glue job to complete 
+                  # Wait for the Glue job to complete (with a timeout)
                   timeout = 600  # Set your timeout (in seconds)
                   interval = 60   # Check every 15 seconds
 
@@ -259,7 +259,7 @@ Resources:
                           break
                       time.sleep(interval)
 
-                  # Notification to SNS about the job completion
+                  # Send notification to SNS about the job completion
                   sns_message = f"Glue job '{glue_job_name}' completed with status: {job_status}."
                   sns_client.publish(
                       TopicArn=sns_topic_arn,
@@ -267,7 +267,7 @@ Resources:
                       Subject=f"Glue Job Completed: {glue_job_name}"
                   )
 
-                  # Event for EventBridge
+                  # Send event to EventBridge
                   events_client.put_events(
                       Entries=[
                           {
@@ -317,7 +317,7 @@ Resources:
 
           def lambda_handler(event, context):
               sns_topic_arn = os.environ['SNS_TOPIC_ARN']
-              print("Received event:", json.dumps(event, indent=2))  
+              print("Received event:", json.dumps(event, indent=2))  # Log the event for debugging
 
               # Extract S3 key and job status from the event
               detail = event.get('detail', {})
@@ -331,11 +331,11 @@ Resources:
                   "default": f"ETL job '{detail.get('job_name')}' completed with status: {detail.get('status')}.",
                   "email": f"ETL job '{detail.get('job_name')}' completed with status: {detail.get('status')}. Output available in S3: {s3_url}"
               }
+              print(message)
               response = sns_client.publish(
                   TopicArn=sns_topic_arn,
                   Message=json.dumps(message),
-                  Subject=f"ETL Job Notification",
-                  MessageStructure='json'
+                  Subject=f"ETL Job Notification"
               )
 
               print(f"Notification sent: {response['MessageId']}")
@@ -416,9 +416,14 @@ Resources:
       Description: "Trigger Notification Lambda on all Glue job state changes"
       EventPattern:
         source:
-          - "custom.triggerGlueJobsLambda"
+          - "aws.glue"
         detail-type:
-          - "GlueJobCompletion"
+          - "AWS Glue Job State Change"
+        detail:
+          state:
+            - "SUCCEEDED"
+            - "FAILED"
+            - "STOPPED"
       Targets:
         - Arn: !GetAtt SendNotificationLambda.Arn
           Id: "SendNotificationLambdaTarget"
@@ -534,7 +539,6 @@ Resources:
           systemctl enable docker
           usermod -aG docker ubuntu 
           docker pull kunjpathak/finstock:latest
-          docker run -d -p 80:8080 kunjpathak/finstock
 
 
 
