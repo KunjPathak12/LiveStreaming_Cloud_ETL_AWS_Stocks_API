@@ -26,7 +26,7 @@ Resources:
     Properties:
       FunctionName: FetchTickersLambda
       Handler: index.lambda_handler
-      Role: arn:aws:iam::697643150634:role/LabRole
+      Role: arn:aws:iam::186444712243:role/LabRole
       Code:
         ZipFile: |
           import json
@@ -87,7 +87,7 @@ Resources:
     Properties:
       FunctionName: FetchParticularTicker
       Handler: index.lambda_handler
-      Role: arn:aws:iam::697643150634:role/LabRole
+      Role: arn:aws:iam::186444712243:role/LabRole
       Code:
         ZipFile: |
           import json
@@ -163,7 +163,7 @@ Resources:
     Type: AWS::Glue::Job
     Properties:
       Name: "fetchAllTickersETL"
-      Role: arn:aws:iam::697643150634:role/LabRole
+      Role: arn:aws:iam::186444712243:role/LabRole
       Command:
         Name: "glueetl"
         ScriptLocation: "s3://finstockbucket001/etlscripts/FetchAllTickersEtl.py"
@@ -180,7 +180,7 @@ Resources:
     Type: AWS::Glue::Job
     Properties:
       Name: "fetchUserTickerETL"
-      Role: arn:aws:iam::697643150634:role/LabRole
+      Role: arn:aws:iam::186444712243:role/LabRole
       Command:
         Name: "glueetl"
         ScriptLocation: "s3://finstockbucket001/etlscripts/FetchUserTickerEtl.py"
@@ -198,7 +198,7 @@ Resources:
     Properties:
       FunctionName: TriggerGlueJobsLambda
       Handler: index.lambda_handler
-      Role: arn:aws:iam::697643150634:role/LabRole
+      Role: arn:aws:iam::186444712243:role/LabRole
       Code:
         ZipFile: |
           import json
@@ -306,7 +306,7 @@ Resources:
     Properties:
       FunctionName: SendNotificationLambda
       Handler: index.lambda_handler
-      Role: arn:aws:iam::697643150634:role/LabRole
+      Role: arn:aws:iam::186444712243:role/LabRole
       Code:
         ZipFile: |
           import json
@@ -523,7 +523,7 @@ Resources:
     Type: 'AWS::EC2::Instance'
     Properties:
       InstanceType: 't2.micro'
-      ImageId: 'ami-055744c75048d8296'
+      ImageId: 'ami-095a8f574cb0ac0d0'
       KeyName: 'finstockkey'
       SubnetId: !Ref PublicSubnet
       SecurityGroupIds:
