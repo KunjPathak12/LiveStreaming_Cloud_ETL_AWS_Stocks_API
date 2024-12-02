@@ -681,7 +681,7 @@ Resources:
           systemctl enable docker
           usermod -aG docker ubuntu 
           docker pull kunjpathak/finstock:latest
-          docker run -p 8080:8080 kunjpathak/finstock:latest
+          docker run -p 80:8080 kunjpathak/finstock:latest
 
   EC2Instance2:
     Type: 'AWS::EC2::Instance'
@@ -703,7 +703,7 @@ Resources:
           systemctl enable docker
           usermod -aG docker ubuntu 
           docker pull kunjpathak/finstock:latest
-          docker run -p 8080:8080 kunjpathak/finstock:latest
+          docker run -p 80:8080 kunjpathak/finstock:latest
 
   EC2Instance3:
     Type: 'AWS::EC2::Instance'
@@ -725,72 +725,5 @@ Resources:
           systemctl enable docker
           usermod -aG docker ubuntu 
           docker pull kunjpathak/finstock:latest
-          docker run -p 8080:8080 kunjpathak/finstock:latest
+          docker run -p 80:8080 kunjpathak/finstock:latest
           
-
-#Outputs:
-#  # S3 Bucket Outputs
-#  BucketName:
-#    Description: "The name of the S3 bucket"
-#    Value: !Ref FinstockBucket
-#
-#  BucketURL:
-#    Description: "URL for accessing the public folder"
-#    Value: !Sub "https://s3.amazonaws.com/finstockbucket12/public-folder/"
-#
-#  # Application Load Balancer (ALB) Output
-#  ALBArn:
-#    Description: "ARN of the Application Load Balancer"
-#    Value: !GetAtt ALB.Arn
-#
-#  ALBName:
-#    Description: "Name of the Application Load Balancer"
-#    Value: !Ref ALB
-#
-#  # Lambda Function Outputs
-#  FetchTickersLambdaArn:
-#    Description: ARN of the FetchTickersLambda function
-#    Value: !GetAtt FetchTickersLambda.Arn
-#
-#  FetchParticularTickerArn:
-#    Description: ARN of the FetchParticularTicker function
-#    Value: !GetAtt FetchParticularTicker.Arn
-#
-#  TriggerGlueJobsLambdaArn:
-#    Description: ARN of the TriggerGlueJobsLambda function
-#    Value: !GetAtt TriggerGlueJobsLambda.Arn
-#
-#  SendNotificationLambdaArn:
-#    Description: ARN of the SendNotificationLambda function
-#    Value: !GetAtt SendNotificationLambda.Arn
-#
-#  # SNS Topic for Notifications
-#  SNSTopicArn:
-#    Description: ARN of the SNS topic for notifications
-#    Value: !Ref SNSTopic
-#
-#  # Instance IDs for EC2 Instances
-#  EC2Instance1Id:
-#    Description: "Instance ID of EC2 Instance 1"
-#    Value: !Ref EC2Instance1
-#
-#  EC2Instance2Id:
-#    Description: "Instance ID of EC2 Instance 2"
-#    Value: !Ref EC2Instance2
-#
-#  EC2Instance3Id:
-#    Description: "Instance ID of EC2 Instance 3"
-#    Value: !Ref EC2Instance3
-#
-#  # VPC and Subnet Information
-#  VPCId:
-#    Description: "VPC ID"
-#    Value: !Ref MyVPC
-#
-#  PublicSubnetId:
-#    Description: "Public Subnet ID (for ALB)"
-#    Value: !Ref PublicSubnet
-#
-#  PrivateSubnetId:
-#    Description: "Private Subnet ID (for EC2 instances)"
-#    Value: !Ref PrivateSubnet
