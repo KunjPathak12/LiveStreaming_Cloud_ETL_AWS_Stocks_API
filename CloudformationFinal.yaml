@@ -1,12 +1,20 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFormation template to deploy an S3 bucket, Lambda functions, Glue jobs, EventBridge rules, and an SNS topic for notifications.
+Description: Kunj Pathak CSCI 5411 Term Project Deployment Stack
 
 Resources:
-  # S3 Bucket
   FinstockBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: finstockbucket12
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - "*"  
+            AllowedMethods:
+              - GET
+            AllowedHeaders:
+              - "*"
+            MaxAge: 3000
     DeletionPolicy: Delete
 
   # Lambda Layer for requests library from an existing bucket
@@ -79,6 +87,11 @@ Resources:
       Timeout: 600
       Layers:
         - !Ref RequestsLayer
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet
+        SecurityGroupIds:
+          - !Ref PrivateSecurityGroup
     DependsOn: FinstockBucket
 
   # Lambda Function 2: FetchParticularTicker
@@ -156,40 +169,11 @@ Resources:
       Timeout: 600
       Layers:
         - !Ref RequestsLayer
-    DependsOn: FinstockBucket
-
-  # Glue Job 1: FetchAllTickersETL
-  FetchAllTickersETL:
-    Type: AWS::Glue::Job
-    Properties:
-      Name: "fetchAllTickersETL"
-      Role: arn:aws:iam::186444712243:role/LabRole
-      Command:
-        Name: "glueetl"
-        ScriptLocation: "s3://finstockbucket001/etlscripts/FetchAllTickersEtl.py"
-        PythonVersion: "3"
-      DefaultArguments:
-        "--job-language": "python"
-      GlueVersion: "3.0"
-      MaxCapacity: 2.0
-      Timeout: 10
-    DependsOn: FinstockBucket
-
-  # Glue Job 2: FetchUserTickerETL
-  FetchUserTickerETL:
-    Type: AWS::Glue::Job
-    Properties:
-      Name: "fetchUserTickerETL"
-      Role: arn:aws:iam::186444712243:role/LabRole
-      Command:
-        Name: "glueetl"
-        ScriptLocation: "s3://finstockbucket001/etlscripts/FetchUserTickerEtl.py"
-        PythonVersion: "3"
-      DefaultArguments:
-        "--job-language": "python"
-      GlueVersion: "3.0"
-      MaxCapacity: 2.0
-      Timeout: 10
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet
+        SecurityGroupIds:
+          - !Ref PrivateSecurityGroup
     DependsOn: FinstockBucket
 
   # Lambda Function 3: TriggerGlueJobsLambda
@@ -299,6 +283,12 @@ Resources:
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref SNSTopic
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet
+        SecurityGroupIds:
+          - !Ref PrivateSecurityGroup
+    DependsOn: SNSTopic
 
   # Lambda Function 4: SendNotificationLambda
   SendNotificationLambda:
@@ -349,6 +339,45 @@ Resources:
       Environment:
         Variables:
           SNS_TOPIC_ARN: !Ref SNSTopic
+      VpcConfig:
+        SubnetIds:
+          - !Ref PrivateSubnet
+        SecurityGroupIds:
+          - !Ref PrivateSecurityGroup
+
+  # Glue Job 1: FetchAllTickersETL
+  FetchAllTickersETL:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: "fetchAllTickersETL"
+      Role: arn:aws:iam::186444712243:role/LabRole
+      Command:
+        Name: "glueetl"
+        ScriptLocation: "s3://finstockbucket001/etlscripts/FetchAllTickersEtl.py"
+        PythonVersion: "3"
+      DefaultArguments:
+        "--job-language": "python"
+      GlueVersion: "3.0"
+      MaxCapacity: 2.0
+      Timeout: 10
+    DependsOn: FinstockBucket
+
+  # Glue Job 2: FetchUserTickerETL
+  FetchUserTickerETL:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: "fetchUserTickerETL"
+      Role: arn:aws:iam::186444712243:role/LabRole
+      Command:
+        Name: "glueetl"
+        ScriptLocation: "s3://finstockbucket001/etlscripts/FetchUserTickerEtl.py"
+        PythonVersion: "3"
+      DefaultArguments:
+        "--job-language": "python"
+      GlueVersion: "3.0"
+      MaxCapacity: 2.0
+      Timeout: 10
+    DependsOn: FinstockBucket
 
   # EventBridge Rule to trigger Lambda on FetchTickersLambda completion
   FetchTickersRule:
@@ -439,14 +468,81 @@ Resources:
 
   # VPC
   MyVPC:
-    Type: 'AWS::EC2::VPC'
+    Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: '10.0.0.0/16'
+      CidrBlock: "10.0.0.0/16"
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
         - Key: Name
           Value: MyVPC
+
+  # Private Subnet
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: "us-east-1a"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet
+
+  # Route Table for Private Subnet
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable
+
+  # Associating the private route table to the private subnet
+  PrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Security Group for Private Subnet
+  PrivateSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Private Subnet Security Group"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "0"
+          ToPort: "65535"
+          CidrIp: "10.0.0.0/16"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+
+  # Public Subnet 1
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: '10.0.2.0/24'
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: MyPublicSubnet
+
+  # Public Subnet 2
+  PublicSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: '10.0.3.0/24'
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: MyPublicSubnet2
 
   # Internet Gateway
   InternetGateway:
@@ -463,19 +559,6 @@ Resources:
       VpcId: !Ref MyVPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Public Subnet
-  PublicSubnet:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: '10.0.1.0/24'
-      MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: MyPublicSubnet
-
-
   # Route Table for Public Subnet
   PublicRouteTable:
     Type: 'AWS::EC2::RouteTable'
@@ -485,7 +568,7 @@ Resources:
         - Key: Name
           Value: MyPublicRouteTable
 
-  # Route for Internet access
+  # Route for Internet access in Public Subnet
   PublicRoute:
     Type: 'AWS::EC2::Route'
     Properties:
@@ -493,41 +576,100 @@ Resources:
       DestinationCidrBlock: '0.0.0.0/0'
       GatewayId: !Ref InternetGateway
 
-  # Associate Public Subnet with Route Table
+  # Associate Public Subnet 1 with Route Table
   PublicSubnetRouteTableAssociation:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       SubnetId: !Ref PublicSubnet
       RouteTableId: !Ref PublicRouteTable
 
-  # Security Group for EC2 Instance
-  InstanceSecurityGroup:
+  # Associate Public Subnet 2 with Route Table
+  PublicSubnet2RouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group for ALB
+  ALBSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
     Properties:
-      GroupDescription: 'Enable SSH and HTTP access'
+      GroupDescription: 'Allow HTTP access to ALB'
       VpcId: !Ref MyVPC
       SecurityGroupIngress:
-        - IpProtocol: 'tcp'
-          FromPort: 22
-          ToPort: 22
-          CidrIp: '0.0.0.0/0'
-        - IpProtocol: 'tcp'
+        - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: '0.0.0.0/0'
-      Tags:
-        - Key: Name
-          Value: MyInstanceSecurityGroup
 
-  EC2Instance:
+  # Security Group for EC2 Instances
+  PrivateEC2SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Allow HTTP access from ALB'
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: "0.0.0.0/0"
+
+  # Application Load Balancer
+  ALB:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    DependsOn: AttachGateway
+    Properties:
+      Name: 'MyAppALB'
+      Subnets:
+        - !Ref PublicSubnet
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      LoadBalancerAttributes:
+        - Key: 'idle_timeout.timeout_seconds'
+          Value: '60'
+      Scheme: 'internet-facing'
+      Type: 'application'
+      IpAddressType: 'ipv4'
+
+  # ALB Target Group
+  ALBTargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      VpcId: !Ref MyVPC
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckPath: '/actuator/health'
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+
+  # ALB Listener
+  ALBListener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  # EC2 Instances
+  EC2Instance1:
     Type: 'AWS::EC2::Instance'
     Properties:
       InstanceType: 't2.micro'
       ImageId: 'ami-095a8f574cb0ac0d0'
       KeyName: 'finstockkey'
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref PrivateSubnet
       SecurityGroupIds:
-        - !Ref InstanceSecurityGroup
+        - !Ref PrivateEC2SecurityGroup
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -539,37 +681,116 @@ Resources:
           systemctl enable docker
           usermod -aG docker ubuntu 
           docker pull kunjpathak/finstock:latest
-          docker run -p 80:8080 kunjpathak/finstock:latest
+          docker run -p 8080:8080 kunjpathak/finstock:latest
 
-Outputs:
-  FetchTickersLambdaArn:
-    Description: ARN of the FetchTickersLambda function
-    Value: !GetAtt FetchTickersLambda.Arn
+  EC2Instance2:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: 't2.micro'
+      ImageId: 'ami-095a8f574cb0ac0d0'
+      KeyName: 'finstockkey'
+      SubnetId: !Ref PrivateSubnet
+      SecurityGroupIds:
+        - !Ref PrivateEC2SecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y openjdk-17-jdk
+          apt-get install -y git
+          apt-get install -y docker.io
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ubuntu 
+          docker pull kunjpathak/finstock:latest
+          docker run -p 8080:8080 kunjpathak/finstock:latest
 
-  FetchParticularTickerArn:
-    Description: ARN of the FetchParticularTicker function
-    Value: !GetAtt FetchParticularTicker.Arn
+  EC2Instance3:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: 't2.micro'
+      ImageId: 'ami-095a8f574cb0ac0d0'
+      KeyName: 'finstockkey'
+      SubnetId: !Ref PrivateSubnet
+      SecurityGroupIds:
+        - !Ref PrivateEC2SecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y openjdk-17-jdk
+          apt-get install -y git
+          apt-get install -y docker.io
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ubuntu 
+          docker pull kunjpathak/finstock:latest
+          docker run -p 8080:8080 kunjpathak/finstock:latest
+          
 
-  TriggerGlueJobsLambdaArn:
-    Description: ARN of the TriggerGlueJobsLambda function
-    Value: !GetAtt TriggerGlueJobsLambda.Arn
-
-  SendNotificationLambdaArn:
-    Description: ARN of the SendNotificationLambda function
-    Value: !GetAtt SendNotificationLambda.Arn
-
-  SNSTopicArn:
-    Description: ARN of the SNS topic for notifications
-    Value: !Ref SNSTopic
-
-  InstanceId:
-    Description: 'Instance ID'
-    Value: !Ref EC2Instance
-
-  PublicIP:
-    Description: 'Public IP Address'
-    Value: !GetAtt EC2Instance.PublicIp
-
-  PublicDNS:
-    Description: 'Public DNS Name'
-    Value: !GetAtt EC2Instance.PublicDnsName
+#Outputs:
+#  # S3 Bucket Outputs
+#  BucketName:
+#    Description: "The name of the S3 bucket"
+#    Value: !Ref FinstockBucket
+#
+#  BucketURL:
+#    Description: "URL for accessing the public folder"
+#    Value: !Sub "https://s3.amazonaws.com/finstockbucket12/public-folder/"
+#
+#  # Application Load Balancer (ALB) Output
+#  ALBArn:
+#    Description: "ARN of the Application Load Balancer"
+#    Value: !GetAtt ALB.Arn
+#
+#  ALBName:
+#    Description: "Name of the Application Load Balancer"
+#    Value: !Ref ALB
+#
+#  # Lambda Function Outputs
+#  FetchTickersLambdaArn:
+#    Description: ARN of the FetchTickersLambda function
+#    Value: !GetAtt FetchTickersLambda.Arn
+#
+#  FetchParticularTickerArn:
+#    Description: ARN of the FetchParticularTicker function
+#    Value: !GetAtt FetchParticularTicker.Arn
+#
+#  TriggerGlueJobsLambdaArn:
+#    Description: ARN of the TriggerGlueJobsLambda function
+#    Value: !GetAtt TriggerGlueJobsLambda.Arn
+#
+#  SendNotificationLambdaArn:
+#    Description: ARN of the SendNotificationLambda function
+#    Value: !GetAtt SendNotificationLambda.Arn
+#
+#  # SNS Topic for Notifications
+#  SNSTopicArn:
+#    Description: ARN of the SNS topic for notifications
+#    Value: !Ref SNSTopic
+#
+#  # Instance IDs for EC2 Instances
+#  EC2Instance1Id:
+#    Description: "Instance ID of EC2 Instance 1"
+#    Value: !Ref EC2Instance1
+#
+#  EC2Instance2Id:
+#    Description: "Instance ID of EC2 Instance 2"
+#    Value: !Ref EC2Instance2
+#
+#  EC2Instance3Id:
+#    Description: "Instance ID of EC2 Instance 3"
+#    Value: !Ref EC2Instance3
+#
+#  # VPC and Subnet Information
+#  VPCId:
+#    Description: "VPC ID"
+#    Value: !Ref MyVPC
+#
+#  PublicSubnetId:
+#    Description: "Public Subnet ID (for ALB)"
+#    Value: !Ref PublicSubnet
+#
+#  PrivateSubnetId:
+#    Description: "Private Subnet ID (for EC2 instances)"
+#    Value: !Ref PrivateSubnet
