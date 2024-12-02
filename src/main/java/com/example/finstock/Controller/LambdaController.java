@@ -26,5 +26,4 @@ public class LambdaController {
         String response = lambdaConnectionService.invokeFetcherUserTicker(specificTickerRequest);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
-
 }
