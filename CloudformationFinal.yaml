@@ -91,7 +91,7 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnet
         SecurityGroupIds:
-          - !Ref PrivateSecurityGroup
+          - !Ref PrivateEC2SecurityGroup
     DependsOn: FinstockBucket
 
   # Lambda Function 2: FetchParticularTicker
@@ -173,7 +173,7 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnet
         SecurityGroupIds:
-          - !Ref PrivateSecurityGroup
+          - !Ref PrivateEC2SecurityGroup
     DependsOn: FinstockBucket
 
   # Lambda Function 3: TriggerGlueJobsLambda
@@ -287,7 +287,7 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnet
         SecurityGroupIds:
-          - !Ref PrivateSecurityGroup
+          - !Ref PrivateEC2SecurityGroup
     DependsOn: SNSTopic
 
   # Lambda Function 4: SendNotificationLambda
@@ -343,7 +343,7 @@ Resources:
         SubnetIds:
           - !Ref PrivateSubnet
         SecurityGroupIds:
-          - !Ref PrivateSecurityGroup
+          - !Ref PrivateEC2SecurityGroup
 
   # Glue Job 1: FetchAllTickersETL
   FetchAllTickersETL:
@@ -466,7 +466,6 @@ Resources:
       Principal: "events.amazonaws.com"
       SourceArn: !GetAtt GlueJobCompletionRule.Arn
 
-  # VPC
   MyVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -476,73 +475,6 @@ Resources:
       Tags:
         - Key: Name
           Value: MyVPC
-
-  # Private Subnet
-  PrivateSubnet:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: "10.0.1.0/24"
-      AvailabilityZone: "us-east-1a"
-      MapPublicIpOnLaunch: false
-      Tags:
-        - Key: Name
-          Value: PrivateSubnet
-
-  # Route Table for Private Subnet
-  PrivateRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref MyVPC
-      Tags:
-        - Key: Name
-          Value: PrivateRouteTable
-
-  # Associating the private route table to the private subnet
-  PrivateRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      SubnetId: !Ref PrivateSubnet
-      RouteTableId: !Ref PrivateRouteTable
-
-  # Security Group for Private Subnet
-  PrivateSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Private Subnet Security Group"
-      VpcId: !Ref MyVPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: "0"
-          ToPort: "65535"
-          CidrIp: "10.0.0.0/16"
-      SecurityGroupEgress:
-        - IpProtocol: "-1"
-          CidrIp: "0.0.0.0/0"
-
-  # Public Subnet 1
-  PublicSubnet:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: '10.0.2.0/24'
-      MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 0, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: MyPublicSubnet
-
-  # Public Subnet 2
-  PublicSubnet2:
-    Type: 'AWS::EC2::Subnet'
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: '10.0.3.0/24'
-      MapPublicIpOnLaunch: true
-      AvailabilityZone: !Select [ 1, !GetAZs '' ]
-      Tags:
-        - Key: Name
-          Value: MyPublicSubnet2
 
   # Internet Gateway
   InternetGateway:
@@ -559,7 +491,59 @@ Resources:
       VpcId: !Ref MyVPC
       InternetGatewayId: !Ref InternetGateway
 
-  # Route Table for Public Subnet
+  # Elastic IP for NAT Gateway
+  ElasticIPForNAT:
+    Type: 'AWS::EC2::EIP'
+    Properties:
+      Domain: vpc
+
+  # NAT Gateway
+  NATGateway:
+    Type: 'AWS::EC2::NatGateway'
+    Properties:
+      AllocationId: !GetAtt ElasticIPForNAT.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: MyNATGateway
+
+  # Public Subnet 1
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.2.0/24"
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: MyPublicSubnet
+
+  # Public Subnet 2
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.3.0/24"
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: MyPublicSubnet2
+
+  # Private Subnet
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: "10.0.1.0/24"
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: "us-east-1a"
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet
+
+  # Route Table for Public Subnets
   PublicRouteTable:
     Type: 'AWS::EC2::RouteTable'
     Properties:
@@ -573,7 +557,7 @@ Resources:
     Type: 'AWS::EC2::Route'
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: '0.0.0.0/0'
+      DestinationCidrBlock: "0.0.0.0/0"
       GatewayId: !Ref InternetGateway
 
   # Associate Public Subnet 1 with Route Table
@@ -590,6 +574,30 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
 
+  # Route Table for Private Subnets
+  PrivateRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MyPrivateRouteTable
+
+  # Route for Internet access in Private Subnet via NAT Gateway
+  PrivateRouteViaNAT:
+    Type: 'AWS::EC2::Route'
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGateway
+
+  # Associate Private Subnet with Route Table
+  PrivateRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
   # Security Group for ALB
   ALBSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -600,7 +608,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: '0.0.0.0/0'
+          CidrIp: "0.0.0.0/0"
 
   # Security Group for EC2 Instances
   PrivateEC2SecurityGroup:
@@ -620,7 +628,6 @@ Resources:
   # Application Load Balancer
   ALB:
     Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
-    DependsOn: AttachGateway
     Properties:
       Name: 'MyAppALB'
       Subnets:
@@ -648,6 +655,11 @@ Resources:
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 3
       UnhealthyThresholdCount: 3
+      Targets:
+        - Id: !Ref EC2Instance1
+          Port: 80
+        - Id: !Ref EC2Instance2
+          Port: 80
 
   # ALB Listener
   ALBListener:
@@ -704,26 +716,3 @@ Resources:
           usermod -aG docker ubuntu 
           docker pull kunjpathak/finstock:latest
           docker run -p 80:8080 kunjpathak/finstock:latest
-
-  EC2Instance3:
-    Type: 'AWS::EC2::Instance'
-    Properties:
-      InstanceType: 't2.micro'
-      ImageId: 'ami-095a8f574cb0ac0d0'
-      KeyName: 'finstockkey'
-      SubnetId: !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref PrivateEC2SecurityGroup
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          apt-get update -y
-          apt-get install -y openjdk-17-jdk
-          apt-get install -y git
-          apt-get install -y docker.io
-          systemctl start docker
-          systemctl enable docker
-          usermod -aG docker ubuntu 
-          docker pull kunjpathak/finstock:latest
-          docker run -p 80:8080 kunjpathak/finstock:latest
-          
