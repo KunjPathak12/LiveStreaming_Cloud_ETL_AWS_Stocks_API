@@ -695,10 +695,32 @@ Resources:
   EC2Instance1:
     Type: 'AWS::EC2::Instance'
     Properties:
-      InstanceType: 't2.micro'
+      InstanceType: 't2.medium'
       ImageId: 'ami-095a8f574cb0ac0d0'
       KeyName: 'finstockkey'
       SubnetId: !Ref PrivateSubnet
+      SecurityGroupIds:
+        - !Ref PrivateEC2SecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y openjdk-17-jdk
+          apt-get install -y git
+          apt-get install -y docker.io
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ubuntu 
+          docker pull kunjpathak/finstock:latest
+          docker run -p 80:8080 kunjpathak/finstock:latest
+
+  EC2Instance3:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: 't2.medium'
+      ImageId: 'ami-095a8f574cb0ac0d0'
+      KeyName: 'finstockkey'
+      SubnetId: !Ref PrivateSubnet2
       SecurityGroupIds:
         - !Ref PrivateEC2SecurityGroup
       UserData:
@@ -718,7 +740,7 @@ Resources:
   EC2Instance2:
     Type: 'AWS::EC2::Instance'
     Properties:
-      InstanceType: 't2.micro'
+      InstanceType: 't2.medium'
       ImageId: 'ami-095a8f574cb0ac0d0'
       KeyName: 'finstockkey'
       SubnetId: !Ref PrivateSubnet2
